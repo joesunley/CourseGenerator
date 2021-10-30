@@ -1,12 +1,9 @@
+using Sunley.Debugging;
+using Sunley.Miscellaneous;
+using Sunley.Orienteering.PurplePen.File;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Sunley.Miscellaneous;
-using Sunley.Orienteering.PurplePen.File;
-using System.Diagnostics;
-using System.IO;
 
 namespace Sunley.Orienteering.PurplePen
 {
@@ -19,14 +16,12 @@ namespace Sunley.Orienteering.PurplePen
         private int courseLength;
         private Random rand;
 
-        #endregion
+        private int angleTolerance;
+        private float randomControlCutoff;
+        private int lastControlMaximumDistance;
 
-        #region -- Constants --
-
-        public const int ANGLE_TOLERANCE = 75;
-        public const float DENSITY_THRESHOLD = 1f;
-        public const float RANDOM_CONTROL_CUTOFF = 0.7f;
-        public const int LAST_CONTROL_MAXIMUM_DISTANCE = 200;
+        private LegLengths legLengths;
+        private LegProbabilities legProbabilities;
 
         #endregion
 
@@ -34,10 +29,11 @@ namespace Sunley.Orienteering.PurplePen
 
         public Course Course => course;
 
-        public LegLengths LegLengths { get; set; }
-        public LegProbabilties LegProbabilities { get; set; }
+
 
         #endregion
+
+        
 
         #region -- Constructors --
 
@@ -49,8 +45,26 @@ namespace Sunley.Orienteering.PurplePen
             course = new Course();
             rand = new Random();
 
-            LegLengths = LegLengths.DefaultValue;
-            LegProbabilities = LegProbabilties.DefaultValue;
+            legLengths = LegLengths.DefaultValue;
+            legProbabilities = LegProbabilities.DefaultValue;
+
+            angleTolerance = 75;
+        }
+
+        public RandomCourse(ControlStore store, int cLength, int angTolerance, float rndControlCutoff, int lastControlMaxDist, LegLengths lengths, LegProbabilities probabilities)
+        {
+            controlStore = store;
+            courseLength = cLength;
+
+            angleTolerance = angTolerance;
+            randomControlCutoff = rndControlCutoff;
+            lastControlMaximumDistance = lastControlMaxDist;
+
+            legLengths = lengths;
+            legProbabilities = probabilities;
+
+            course = new Course();
+            rand = new Random();
         }
 
         #endregion
@@ -72,8 +86,9 @@ namespace Sunley.Orienteering.PurplePen
 
         void CreateRndCourse()
         {
+            Log.Counters.Add("Nearest");
             // Choose Start
-            Debug.Print("Started");
+            Log.Message("Started");
 
             ControlPoint start = controlStore.ChooseStart();
             course.AddControl(start);
@@ -82,7 +97,7 @@ namespace Sunley.Orienteering.PurplePen
             // Choose First Control
 
             
-            LegLength l = new LegLength(0, LegLengths.Short_Max);
+            LegLength l = new LegLength(0, legLengths.Short_Max);
             List<ControlPoint> validt = new List<ControlPoint>();
 
             foreach (ControlPoint c in controlStore)
@@ -108,13 +123,13 @@ namespace Sunley.Orienteering.PurplePen
                 // Choose Nearest - Might change this decision
             }
 
-            Debug.Print($"Chosen first control:  {course.Last().Code.ToString()}");
+            Log.Message($"Chosen first control:  {course.Last().Code.ToString()}");
 
             // Choose Other Controls
 
             float courseLen = 0;
 
-            while (courseLen < (courseLength * RANDOM_CONTROL_CUTOFF))
+            while (courseLen < (courseLength * randomControlCutoff))
             {
                 // Select valid Controls
 
@@ -128,6 +143,9 @@ namespace Sunley.Orienteering.PurplePen
                 else
                 {
                     // Choose Nearest - Might change this decision
+                    Log.Counters.Increment("Nearest");
+                    Log.Warning("Nearest control chosen. " + Log.Counters["Nearest"]);
+                    
 
                     ControlPoint nearest = new ControlPoint();
                     float dist = float.MaxValue;
@@ -144,17 +162,17 @@ namespace Sunley.Orienteering.PurplePen
                     course.AddControl(nearest);
                 }
 
-                Debug.Print($"Chosen Control {course.Count}: {course.Last().Code.ToString()}");
+                Log.Message($"Chosen Control {course.Count}: {course.Last().Code}");
 
                 float legLen = controlStore.DistanceBetweenControls(course[course.Count - 2], course[course.Count - 1]);
                 courseLen += legLen;
             }
 
             // Choose Finish
-
+             
             ControlPoint finish = controlStore.ChooseFinish(course.Last());
 
-            Debug.Print("Chosen Finish");
+            Log.Message("Chosen Finish");
 
             // Work towards finish
 
@@ -207,6 +225,9 @@ namespace Sunley.Orienteering.PurplePen
                 }
                 else
                 {
+                    Log.Counters.Increment("Nearest");
+                    Log.Warning("Nearest Control Chosen. " + Log.Counters["Nearest"]);
+                    
                     ControlPoint nearest = new ControlPoint();
                     float distt = float.MaxValue;
 
@@ -224,12 +245,12 @@ namespace Sunley.Orienteering.PurplePen
 
 
 
-                Debug.Print($"Working towards finish, Control {course.Count}: {course.Last().Code.ToString()}");
+                Log.Message($"Working towards finish, Control {course.Count}: {course.Last().Code.ToString()}");
 
                 // Check distance to finish and decide whether done
 
                 float dist = controlStore.DistanceBetweenControls(course.Last(), finish);
-                if (dist <= LAST_CONTROL_MAXIMUM_DISTANCE)
+                if (dist <= lastControlMaximumDistance)
                     cont = false;
 
                 if (course.CourseLength(controlStore) > courseLength * 1.25)
@@ -238,9 +259,15 @@ namespace Sunley.Orienteering.PurplePen
 
             course.AddControl(finish);
 
-            Debug.Print("FINISHED");
+            //if (course.Last() == course[course.Count - 2])
+            //{
+            //    course.RemoveControl(course.Last());
+            //}
+
+            Log.Info("FINISHED");
+            Log.Counters.Remove("Nearest");
         }
-        LegLength ChooseLegLength(LegLengths legLengths, LegProbabilties legProbabilties)
+        LegLength ChooseLegLength(LegLengths legLengths, LegProbabilities legProbabilties)
         {
             float rnd = (float)rand.NextDouble();
 
@@ -263,19 +290,20 @@ namespace Sunley.Orienteering.PurplePen
         }
         List<ControlPoint> ChooseValidControls()
         {
-            LegLength legLength = ChooseLegLength(LegLengths, LegProbabilities);
+            LegLength legLength = ChooseLegLength(legLengths, legProbabilities);
 
             List<ControlPoint> valid = new List<ControlPoint>();
 
             foreach (ControlPoint c in controlStore)
             {
                 float legDist = controlStore.DistanceBetweenControls(c, course.Last());
+                //Log.Error(legDist.ToString("F0"));
 
                 if (legDist >= legLength.Minimum && legDist <= legLength.Maximum)
                 {
                     double angle = Misc.AngleBetweenThreePoints(course[course.Count - 2].Position, course[course.Count - 1].Position, c.Position);
 
-                    if (angle >= (180 - ANGLE_TOLERANCE) && angle <= (180 + ANGLE_TOLERANCE))
+                    if (angle >= (180 - angleTolerance) && angle <= (180 + angleTolerance))
                     {
                         if (c.Type == ControlPointType.Normal)
                         {
@@ -324,16 +352,16 @@ namespace Sunley.Orienteering.PurplePen
             Medium_Max = medium;
         }
 
-        public static LegLengths DefaultValue = new LegLengths(200, 500, 1000);
+        public static LegLengths DefaultValue = new LegLengths(250, 600, 1200);
     }
-    public struct LegProbabilties
+    public struct LegProbabilities
     {
         public float VeryShort { get; set; }
         public float Short { get; set; }
         public float Medium { get; set; }
         public float Long { get; set; }
 
-        public LegProbabilties(float vShort, float shortt, float medium, float longg)
+        public LegProbabilities(float vShort, float shortt, float medium, float longg)
         {
             if (vShort + shortt + medium + longg != 1)
                 throw new Exception("Probabilities must add up to 1");
@@ -357,7 +385,7 @@ namespace Sunley.Orienteering.PurplePen
             return VeryShort + Short + Medium;
         }
 
-        public static LegProbabilties DefaultValue = new LegProbabilties(0.2f, 0.4f, 0.3f, 0.1f);
+        public static LegProbabilities DefaultValue = new LegProbabilities(0.2f, 0.4f, 0.3f, 0.1f);
     }
     public struct LegLength
     {

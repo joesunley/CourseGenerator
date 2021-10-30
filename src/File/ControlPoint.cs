@@ -68,9 +68,30 @@ namespace Sunley.Orienteering.PurplePen.File
 
             }
         }
+        public ControlPoint(int id, int code, PointF location, ControlPointType type)
+        {
+            f_id = id;
+            f_code = code;
+            f_loc = location;
+            f_type = type;
+        }
+        public ControlPoint(int code, PointF location, ControlPointType type)
+        {
+            f_code = code;
+            f_loc = location;
+            f_type = type;
+
+            f_id = -1;
+        }
         public ControlPoint() { }
 
         #endregion
+
+        public void AddID(int id)
+        {
+            if (f_id == -1)
+                f_id = id;
+        }
     }
     public enum ControlPointType
     {
